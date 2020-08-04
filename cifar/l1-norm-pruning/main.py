@@ -46,6 +46,7 @@ parser.add_argument('--arch', default='vgg', type=str,
                     help='architecture to use')
 parser.add_argument('--depth', default=16, type=int,
                     help='depth of the neural network')
+parser.set_defaults(use_onecycle=False)
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -60,7 +61,7 @@ if not os.path.exists(args.save):
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
 if args.dataset == 'cifar10':
     train_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10('./data.cifar10', train=True, download=True,
+        datasets.CIFAR10('./data', train=True, download=True,
                        transform=transforms.Compose([
                            transforms.Pad(4),
                            transforms.RandomCrop(32),
@@ -70,14 +71,14 @@ if args.dataset == 'cifar10':
                        ])),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10('./data.cifar10', train=False, transform=transforms.Compose([
+        datasets.CIFAR10('./data', train=False, transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
                        ])),
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 else:
     train_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR100('./data.cifar100', train=True, download=True,
+        datasets.CIFAR100('./data', train=True, download=True,
                        transform=transforms.Compose([
                            transforms.Pad(4),
                            transforms.RandomCrop(32),
@@ -87,7 +88,7 @@ else:
                        ])),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR100('./data.cifar100', train=False, transform=transforms.Compose([
+        datasets.CIFAR100('./data', train=False, transform=transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
                        ])),
@@ -124,7 +125,7 @@ def train(epoch):
         optimizer.zero_grad()
         output = model(data)
         loss = F.cross_entropy(output, target)
-        avg_loss += loss.data[0]
+        avg_loss += loss.item()
         pred = output.data.max(1, keepdim=True)[1]
         train_acc += pred.eq(target.data.view_as(pred)).cpu().sum()
         loss.backward()
@@ -132,20 +133,21 @@ def train(epoch):
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.1f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.data[0]))
+                100. * batch_idx / len(train_loader), loss.item()))
 
 def test():
     model.eval()
     test_loss = 0
     correct = 0
-    for data, target in test_loader:
-        if args.cuda:
-            data, target = data.cuda(), target.cuda()
-        data, target = Variable(data, volatile=True), Variable(target)
-        output = model(data)
-        test_loss += F.cross_entropy(output, target, size_average=False).data[0] # sum up batch loss
-        pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability
-        correct += pred.eq(target.data.view_as(pred)).cpu().sum()
+    with torch.no_grad():
+        for data, target in test_loader:
+            if args.cuda:
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data), Variable(target)
+            output = model(data)
+            test_loss += F.cross_entropy(output, target, size_average=False) # sum up batch loss
+            pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability
+            correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     test_loss /= len(test_loader.dataset)
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.1f}%)\n'.format(
