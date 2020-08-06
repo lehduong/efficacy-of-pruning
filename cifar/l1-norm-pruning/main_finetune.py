@@ -141,10 +141,13 @@ def train(epoch):
         train_acc += pred.eq(target.data.view_as(pred)).cpu().sum()
         loss.backward()
         optimizer.step()
+        if args.use_onecycle:
+            lr_scheduler.step()
+        cur_lr = next(iter(optimizer.param_groups))['lr']
         if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.1f}%)]\tLoss: {:.6f}'.format(
+            print('Train Epoch: {} [{}/{} ({:.1f}%)]\tLR: {:.6f}\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
+                100. * batch_idx / len(train_loader), cur_lr, loss.item()))
 
 def test():
     model.eval()
@@ -173,9 +176,6 @@ def save_checkpoint(state, is_best, filepath):
 
 best_prec1 = 0.
 for epoch in range(args.start_epoch, args.epochs):
-    if args.use_onecycle:
-        lr_scheduler.step()
-        
     train(epoch)
     prec1 = test()
     is_best = prec1 > best_prec1
